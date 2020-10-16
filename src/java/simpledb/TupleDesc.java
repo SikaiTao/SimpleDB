@@ -226,7 +226,13 @@ public class TupleDesc implements Serializable {
      * @return String describing this descriptor.
      */
     public String toString() {
-        // some code goes here
-        return "";
+        StringBuilder ret = new StringBuilder();
+        for(int i=0; i<td.length; i++){
+            ret.append(String.format("%s(%s)", td[i].fieldType, td[i].fieldName));
+            if(i != td.length-1){
+                ret.append(", ");
+            }
+        }
+        return ret.toString();
     }
 }

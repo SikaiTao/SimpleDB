@@ -84,7 +84,7 @@ public class Tuple implements Serializable {
      * where \t is any whitespace, except newline, and \n is a newline
      */
     public String toString() {
-        StringBuilder ret = new StringBuilder("");
+        StringBuilder ret = new StringBuilder();
         for(Field f : fields){
             ret.append(f.toString());
             ret.append("\t");
