@@ -2,6 +2,7 @@ package simpledb;
 
 import java.io.*;
 
+import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -26,13 +27,17 @@ public class BufferPool {
     constructor instead. */
     public static final int DEFAULT_PAGES = 50;
 
+    private HashMap<PageId, Page> bp;
+    private int maxPages;
+
     /**
      * Creates a BufferPool that caches up to numPages pages.
      *
      * @param numPages maximum number of pages in this buffer pool.
      */
     public BufferPool(int numPages) {
-        // some code goes here
+        maxPages = numPages;
+        bp = new HashMap<>();
     }
     
     public static int getPageSize() {
@@ -66,8 +71,21 @@ public class BufferPool {
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
-        // some code goes here
-        return null;
+        Page tempPage = bp.get(pid);
+        if(tempPage != null){
+            return tempPage;
+        }else{
+            HeapFile file = (HeapFile)Database.getCatalog().getDatabaseFile(pid.getTableId());
+            Page pageRead = file.readPage(pid);
+
+            if (bp.size() == maxPages){
+                //eviction policy
+                throw new DbException("stub here");
+            }else{
+                bp.put(pid,pageRead);
+            }
+            return pageRead;
+        }
     }
 
     /**
