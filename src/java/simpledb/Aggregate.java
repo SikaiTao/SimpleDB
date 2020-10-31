@@ -10,6 +10,17 @@ import java.util.*;
 public class Aggregate extends Operator {
 
     private static final long serialVersionUID = 1L;
+    private OpIterator child;
+    private int afield;
+    private int gfield;
+    private Aggregator.Op aop;
+    private Aggregator a;
+    private TupleDesc atd;
+
+    private String afieldName;
+    private String gfieldName;
+
+    private OpIterator result;
 
     /**
      * Constructor.
@@ -30,7 +41,47 @@ public class Aggregate extends Operator {
      *            The aggregation operator to use
      */
     public Aggregate(OpIterator child, int afield, int gfield, Aggregator.Op aop) {
-	// some code goes here
+        this.child = child;
+        this.afield = afield;
+        this.gfield = gfield;
+        this.aop = aop;
+
+        Type gfieldType = null;
+        Type afieldType = child.getTupleDesc().getFieldType(afield);
+
+        afieldName = aop.toString() + "(" + child.getTupleDesc().getFieldName(afield) + ")";
+
+        Type[] aTypes;
+        String[] aNames;
+
+        if(this.gfield == Aggregator.NO_GROUPING){
+            aTypes = new Type[1];
+            aNames = new String[1];
+            aTypes[0] = afieldType;
+            aNames[0] = afieldName;
+
+        }else {
+            gfieldType = child.getTupleDesc().getFieldType(gfield);
+            gfieldName = child.getTupleDesc().getFieldName(gfield);
+            aTypes = new Type[2];
+            aNames = new String[2];
+            aTypes[0] = gfieldType;
+            aNames[0] = gfieldName;
+            aTypes[1] = afieldType;
+            aNames[1] = afieldName;
+
+        }
+        this.atd = new TupleDesc(aTypes, aNames);
+
+        if(afieldType == Type.INT_TYPE){
+            this.a = new IntegerAggregator(gfield, gfieldType, afield, this.aop);
+        }else if (afieldType == Type.STRING_TYPE){
+            this.a = new StringAggregator(gfield, gfieldType, afield, this.aop);
+        }else {
+            throw new IllegalStateException("Only support type Integer or String");
+        }
+
+
     }
 
     /**
@@ -39,8 +90,7 @@ public class Aggregate extends Operator {
      *         {@link simpledb.Aggregator#NO_GROUPING}
      * */
     public int groupField() {
-	// some code goes here
-	return -1;
+        return this.gfield;
     }
 
     /**
@@ -49,16 +99,14 @@ public class Aggregate extends Operator {
      *         null;
      * */
     public String groupFieldName() {
-	// some code goes here
-	return null;
+	    return gfieldName;
     }
 
     /**
      * @return the aggregate field
      * */
     public int aggregateField() {
-	// some code goes here
-	return -1;
+        return afield;
     }
 
     /**
@@ -66,16 +114,14 @@ public class Aggregate extends Operator {
      *         tuples
      * */
     public String aggregateFieldName() {
-	// some code goes here
-	return null;
+        return afieldName;
     }
 
     /**
      * @return return the aggregate operator
      * */
     public Aggregator.Op aggregateOp() {
-	// some code goes here
-	return null;
+	    return aop;
     }
 
     public static String nameOfAggregatorOp(Aggregator.Op aop) {
@@ -84,7 +130,15 @@ public class Aggregate extends Operator {
 
     public void open() throws NoSuchElementException, DbException,
 	    TransactionAbortedException {
-	// some code goes here
+	    super.open();
+	    child.open();
+	    while (child.hasNext()){
+	        a.mergeTupleIntoGroup(child.next());
+        }
+        child.close();
+	    result = a.iterator();
+	    result.open();
+
     }
 
     /**
@@ -95,12 +149,12 @@ public class Aggregate extends Operator {
      * aggregate. Should return null if there are no more tuples.
      */
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-	// some code goes here
-	return null;
+	    if(!result.hasNext()) return null;
+	    return result.next();
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
-	// some code goes here
+        result.rewind();
     }
 
     /**
@@ -115,23 +169,22 @@ public class Aggregate extends Operator {
      * iterator.
      */
     public TupleDesc getTupleDesc() {
-	// some code goes here
-	return null;
+        return atd;
     }
 
     public void close() {
-	// some code goes here
+        result.close();
+        super.close();
     }
 
     @Override
     public OpIterator[] getChildren() {
-	// some code goes here
-	return null;
+        return new OpIterator[]{ child };
     }
 
     @Override
     public void setChildren(OpIterator[] children) {
-	// some code goes here
+	    child = children[0];
     }
     
 }
