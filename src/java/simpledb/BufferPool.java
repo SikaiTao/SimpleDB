@@ -2,9 +2,7 @@ package simpledb;
 
 import java.io.*;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -28,8 +26,9 @@ public class BufferPool {
     constructor instead. */
     public static final int DEFAULT_PAGES = 50;
 
-    private HashMap<PageId, Page> bp;
-    private int maxPages;
+    private LinkedHashMap<PageId, Page> bp;
+    private int maxPagesSize;
+
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -37,8 +36,8 @@ public class BufferPool {
      * @param numPages maximum number of pages in this buffer pool.
      */
     public BufferPool(int numPages) {
-        maxPages = numPages;
-        bp = new HashMap<>();
+        maxPagesSize = numPages;
+        bp = new PagesBuffer(maxPagesSize);
     }
     
     public static int getPageSize() {
@@ -53,6 +52,25 @@ public class BufferPool {
     // THIS FUNCTION SHOULD ONLY BE USED FOR TESTING!!
     public static void resetPageSize() {
     	BufferPool.pageSize = DEFAULT_PAGE_SIZE;
+    }
+
+    private class PagesBuffer extends LinkedHashMap<PageId, Page>{
+
+        private static final long serialVersionUID = 1L;
+        int maxPages;
+
+        private PagesBuffer(int maxPagesSize)
+        {
+            super(maxPagesSize, 0.75F, true);
+            maxPages = maxPagesSize;
+        }
+
+        @Override
+        protected boolean removeEldestEntry(java.util.Map.Entry eldest)
+        {
+            return size() > maxPages;
+        }
+
     }
 
     /**
@@ -78,13 +96,7 @@ public class BufferPool {
         }else{
             HeapFile file = (HeapFile)Database.getCatalog().getDatabaseFile(pid.getTableId());
             Page pageRead = file.readPage(pid);
-
-            if (bp.size() == maxPages){
-                //eviction policy
-                throw new DbException("stub here");
-            }else{
-                bp.put(pid,pageRead);
-            }
+            bp.put(pid, pageRead);
             return pageRead;
         }
     }
@@ -181,8 +193,10 @@ public class BufferPool {
      *     break simpledb if running in NO STEAL mode.
      */
     public synchronized void flushAllPages() throws IOException {
-        // some code goes here
-        // not necessary for lab1
+        List<PageId> pids = new ArrayList<>(bp.keySet());
+        for(int i=0; i<pids.size(); i++){
+            flushPage(pids.get(0));
+        }
 
     }
 
@@ -195,17 +209,20 @@ public class BufferPool {
         are removed from the cache so they can be reused safely
     */
     public synchronized void discardPage(PageId pid) {
-        // some code goes here
-        // not necessary for lab1
+        bp.remove(pid);
     }
 
     /**
      * Flushes a certain page to disk
      * @param pid an ID indicating the page to flush
      */
-    private synchronized  void flushPage(PageId pid) throws IOException {
-        // some code goes here
-        // not necessary for lab1
+    private synchronized void flushPage(PageId pid) throws IOException {
+        Page targetPage = bp.get(pid);
+        TransactionId dirtyTid = targetPage.isDirty();
+        if(dirtyTid != null){
+            Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(targetPage);
+            targetPage.markDirty(false, dirtyTid);
+        }
     }
 
     /** Write all pages of the specified transaction to disk.
@@ -220,8 +237,17 @@ public class BufferPool {
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
     private synchronized  void evictPage() throws DbException {
-        // some code goes here
-        // not necessary for lab1
+        Iterator<PageId> pids = bp.keySet().iterator();
+        if (pids.hasNext()){
+            PageId oldest = pids.next();
+            try {
+                flushPage(oldest);
+                discardPage(oldest);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
     }
 
 }
