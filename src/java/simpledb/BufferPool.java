@@ -94,7 +94,7 @@ public class BufferPool {
         if(tempPage != null){
             return tempPage;
         }else{
-            HeapFile file = (HeapFile)Database.getCatalog().getDatabaseFile(pid.getTableId());
+            DbFile file = Database.getCatalog().getDatabaseFile(pid.getTableId());
             Page pageRead = file.readPage(pid);
             bp.put(pid, pageRead);
             return pageRead;
