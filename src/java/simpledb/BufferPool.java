@@ -110,10 +110,10 @@ public class BufferPool {
         long timeStamp = System.currentTimeMillis();
 
         while (!lc.lock(pid, tid, perm)){
-            if (System.currentTimeMillis() - timeStamp > new Random().nextInt(500) + 1000)
+            if (System.currentTimeMillis() - timeStamp > new Random().nextInt(500) + 2000)
                 throw new TransactionAbortedException();
             try {
-                Thread.sleep(new Random().nextInt(100));
+                Thread.sleep(new Random().nextInt(50));
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
