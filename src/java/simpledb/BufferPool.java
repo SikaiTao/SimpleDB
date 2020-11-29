@@ -38,7 +38,7 @@ public class BufferPool {
      */
     public BufferPool(int numPages) {
         maxPagesSize = numPages;
-        bp = new ConcurrentHashMap<>(maxPagesSize);
+        bp = new ConcurrentHashMap<>();
         lc = new LocksCatalog();
     }
 
@@ -107,7 +107,17 @@ public class BufferPool {
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
-        while (!lc.lock(pid, tid, perm));
+        long timeStamp = System.currentTimeMillis();
+
+        while (!lc.lock(pid, tid, perm)){
+            if (System.currentTimeMillis() - timeStamp > new Random().nextInt(500) + 1000)
+                throw new TransactionAbortedException();
+            try {
+                Thread.sleep(new Random().nextInt(100));
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
 
         Page tempPage = bp.get(pid);
         if(tempPage != null){
@@ -274,13 +284,30 @@ public class BufferPool {
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
     private synchronized void evictPage() throws DbException {
-        PageId oldest =  new ArrayList<>(bp.keySet()).get(0);
-        try {
-            flushPage(oldest);
-        } catch (IOException e) {
-            e.printStackTrace();
+        //NO-STEAL strategy
+        PageId target = null;
+
+        for (Map.Entry<PageId, Page> pair : bp.entrySet()){
+            if (pair.getValue().isDirty() == null){
+                target = pair.getKey();
+                break;
+            }
         }
-        discardPage(oldest);
+
+        if (target == null) throw new DbException("All pages are dirty in buffer pool");
+
+        discardPage(target);
+
+
+
+        //STEAL strategy
+//        PageId oldest =  new ArrayList<>(bp.keySet()).get(0);
+//        try {
+//            flushPage(oldest);
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//        discardPage(oldest);
     }
 
 }

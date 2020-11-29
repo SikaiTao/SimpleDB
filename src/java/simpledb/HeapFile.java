@@ -109,12 +109,15 @@ public class HeapFile implements DbFile {
         HeapPage thisPage;
 
         for (; pageNo < pageNum; pageNo++){
-            thisPage = (HeapPage)Database.getBufferPool().getPage(tid, new HeapPageId(getId(), pageNo), Permissions.READ_WRITE);
+            HeapPageId pid = new HeapPageId(getId(), pageNo);
+            thisPage = (HeapPage)Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
             if(thisPage.getNumEmptySlots() != 0){
                 thisPage.insertTuple(t);
 //                thisPage.markDirty(true, tid);
                 pages.add(thisPage);
                 return pages;
+            }else {
+                Database.getBufferPool().releasePage(tid, pid);
             }
         }
 
