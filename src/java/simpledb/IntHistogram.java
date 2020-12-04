@@ -3,6 +3,11 @@ package simpledb;
 /** A class to represent a fixed-width histogram over a single integer-based field.
  */
 public class IntHistogram {
+    private int max;
+    private int min;
+    private int numT;
+    private double w;
+    private int[] bs;
 
     /**
      * Create a new IntHistogram.
@@ -21,7 +26,11 @@ public class IntHistogram {
      * @param max The maximum integer value that will ever be passed to this class for histogramming
      */
     public IntHistogram(int buckets, int min, int max) {
-    	// some code goes here
+    	this.min = min;
+    	this.max = max;
+    	bs = new int[buckets];
+    	this.numT = 0;
+    	this.w = ((double) max + 1 - min) / buckets;
     }
 
     /**
@@ -29,7 +38,11 @@ public class IntHistogram {
      * @param v Value to add to the histogram
      */
     public void addValue(int v) {
-    	// some code goes here
+    	if (v <= max && v>=min){
+            numT ++;
+    	    bs[(int) ((v - min) / w)] ++;
+        }
+
     }
 
     /**
@@ -43,9 +56,40 @@ public class IntHistogram {
      * @return Predicted selectivity of this particular operator and value
      */
     public double estimateSelectivity(Predicate.Op op, int v) {
+        switch (op){
+            case LESS_THAN: {
+                if (v > max)
+                    return 1.0;
+                if (v <= min)
+                    return 0.0;
 
-    	// some code goes here
-        return -1.0;
+                int v_i = (int) ((v - min) / w);
+                double tupleNumbeforeV = 0;
+
+                for (int i = 0; i < v_i; i++) tupleNumbeforeV += bs[i];
+                double percent = (v - min - v_i * w) / w;
+                tupleNumbeforeV += bs[v_i] * percent;
+                return tupleNumbeforeV / numT;
+            }
+            case GREATER_THAN_OR_EQ:
+                return 1 - estimateSelectivity(Predicate.Op.LESS_THAN, v);
+
+            case LESS_THAN_OR_EQ:
+                return estimateSelectivity(Predicate.Op.LESS_THAN, v + 1);
+
+            case GREATER_THAN:
+                return 1 - estimateSelectivity(Predicate.Op.LESS_THAN_OR_EQ, v);
+
+            case EQUALS:
+                return estimateSelectivity(Predicate.Op.LESS_THAN_OR_EQ, v) - estimateSelectivity(Predicate.Op.LESS_THAN, v);
+
+            case NOT_EQUALS:
+                return 1 - estimateSelectivity(Predicate.Op.EQUALS, v);
+
+            default:
+                return -1.0;
+
+        }
     }
     
     /**
@@ -58,7 +102,6 @@ public class IntHistogram {
      * */
     public double avgSelectivity()
     {
-        // some code goes here
         return 1.0;
     }
     
@@ -66,7 +109,13 @@ public class IntHistogram {
      * @return A string describing this histogram, for debugging purposes
      */
     public String toString() {
-        // some code goes here
-        return null;
+        StringBuilder content = new StringBuilder();
+        for (int b : bs) {
+            content.append(b);
+            content.append("|");
+        }
+
+        return String.format("Integer Hist : buckets num = %d, max = %d, min = %d, width = %.2f, content = %s",
+                bs.length, max, min, w, content.toString());
     }
 }
