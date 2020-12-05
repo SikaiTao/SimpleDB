@@ -68,20 +68,19 @@ public class Join extends Operator {
         super.open();
         child1.open();
         child2.open();
-        this.first = child1.hasNext()? child1.next(): null;
+        first = null;
     }
 
     public void close() {
         child1.close();
         child2.close();
         super.close();
-        this.first = null;
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
         child1.rewind();
         child2.rewind();
-        this.first = child1.hasNext()? child1.next(): null;
+        first = null;
     }
 
     /**
@@ -103,31 +102,44 @@ public class Join extends Operator {
      * @see JoinPredicate#filter
      */
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-        if (first == null) return null;
+        while (child1.hasNext() || first != null){
 
-        if (!child2.hasNext()){
-            if (!child1.hasNext()){
-                first = null;
-            }else {
-                first = child1.next();
-                child2.rewind();
+            if (child1.hasNext() && first == null) first = child1.next();
+
+            while (child2.hasNext()){
+                Tuple second = child2.next();
+
+                if (p.filter(first, second)){
+
+                    Tuple resTarget = new Tuple(td);
+                    resTarget.setRecordId(first.getRecordId());
+
+                    int firstIndex = 0;
+
+                    for (; firstIndex < child1.getTupleDesc().numFields(); ++firstIndex){
+                        resTarget.setField(firstIndex, first.getField(firstIndex));
+                    }
+
+                    for (int secondIndex = 0; secondIndex < child2.getTupleDesc().numFields(); ++secondIndex){
+                        resTarget.setField(firstIndex + secondIndex, second.getField(secondIndex));
+                    }
+
+                    if (!child2.hasNext()){
+                        first = null;
+                        child2.rewind();
+
+                    }
+
+                    return resTarget;
+                }
             }
-            return fetchNext();
-        }else {
-            Tuple second = child2.next();
-            if (p.filter(first, second)) {
-                Tuple joint = new Tuple(getTupleDesc());
-                int i = 0;
-                for (; i < first.getTupleDesc().numFields(); i++) {
-                    joint.setField(i, first.getField(i));
-                }
-                for (int j = 0; j < second.getTupleDesc().numFields(); j++) {
-                    joint.setField(i, second.getField(j));
-                    i++;
-                }
-                return joint;
-            }else return fetchNext();
+
+            first = null;
+            child2.rewind();
+
         }
+
+        return null;
     }
 
     @Override

@@ -107,11 +107,7 @@ public class JoinOptimizer {
             // You do not need to implement proper support for these for Lab 3.
             return card1 + cost1 + cost2;
         } else {
-            // Insert your code here.
-            // HINT: You may need to use the variable "j" if you implemented
-            // a join algorithm that's more complicated than a basic
-            // nested-loops join.
-            return -1.0;
+            return cost2 * card1 + card2 * card1 + cost1;
         }
     }
 
@@ -155,9 +151,14 @@ public class JoinOptimizer {
             String field2PureName, int card1, int card2, boolean t1pkey,
             boolean t2pkey, Map<String, TableStats> stats,
             Map<String, Integer> tableAliasToId) {
-        int card = 1;
-        // some code goes here
-        return card <= 0 ? 1 : card;
+
+        if (joinOp != Predicate.Op.EQUALS){
+            return  (int) (card1 * card2 * 0.3);
+        }else {
+            if (t1pkey) return card2;
+            if (t2pkey) return card1;
+            return card1 < card2 ? card2 : card1;
+        }
     }
 
     /**
@@ -217,11 +218,32 @@ public class JoinOptimizer {
             HashMap<String, TableStats> stats,
             HashMap<String, Double> filterSelectivities, boolean explain)
             throws ParsingException {
-        //Not necessary for labs 1--3
 
-        // some code goes here
-        //Replace the following
-        return joins;
+        int jStop = joins.size();
+        PlanCache pCache = new PlanCache();
+
+        for (int j = 1; j <= jStop; j++){
+            Set<Set<LogicalJoinNode>> fixedSubsets =  enumerateSubsets(joins, j);
+
+            for(Set<LogicalJoinNode> subset : fixedSubsets){
+                double currentMinCost = Double.MAX_VALUE;
+                for (LogicalJoinNode ljn : subset) {
+                    CostCard cc = computeCostAndCardOfSubplan(stats, filterSelectivities, ljn, subset, currentMinCost, pCache);
+                    if (cc != null && cc.cost < currentMinCost) {
+                        currentMinCost = cc.cost;
+                        pCache.addPlan(subset, currentMinCost, cc.card, cc.plan);
+                    }
+                }
+            }
+        }
+
+        Vector<LogicalJoinNode> order = pCache.getOrder(new HashSet<>(joins));
+
+        if (explain)
+            printJoins(order, pCache, stats, filterSelectivities);
+
+
+        return order;
     }
 
     // ===================== Private Methods =================================
