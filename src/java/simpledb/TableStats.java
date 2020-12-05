@@ -17,6 +17,13 @@ public class TableStats {
 
     static final int IOCOSTPERPAGE = 1000;
 
+    private DbFile f;
+    private int iocostperpage;
+    private int tupleAmounts;
+    private HashMap<Integer, IntHistogram> intHistMap;
+    private HashMap<Integer, StringHistogram> stringHistMap;
+
+
     public static TableStats getTableStats(String tablename) {
         return statsMap.get(tablename);
     }
@@ -77,14 +84,76 @@ public class TableStats {
      *            sequential-scan IO and disk seeks.
      */
     public TableStats(int tableid, int ioCostPerPage) {
-        // For this function, you'll have to get the
-        // DbFile for the table in question,
-        // then scan through its tuples and calculate
-        // the values that you need.
-        // You should try to do this reasonably efficiently, but you don't
-        // necessarily have to (for example) do everything
-        // in a single scan of the table.
-        // some code goes here
+        f = Database.getCatalog().getDatabaseFile(tableid);
+        iocostperpage = ioCostPerPage;
+        intHistMap = new HashMap<>();
+        stringHistMap = new HashMap<>();
+        HashMap<Integer, Integer> maxRecord = new HashMap<>();
+        HashMap<Integer, Integer> minRecord = new HashMap<>();
+
+        tupleAmounts = 0;
+        TupleDesc td = Database.getCatalog().getTupleDesc(tableid);
+        TransactionId tid = new TransactionId();
+        DbFileIterator tableIter = f.iterator(tid);
+
+
+        try {
+            //记录各个字段的最大值最小值
+            tableIter.open();
+            while (tableIter.hasNext()){
+                Tuple t = tableIter.next();
+                tupleAmounts ++;
+
+                for (int i = 0; i < td.numFields(); i++){
+                    Type type = td.getFieldType(i);
+                    if (type == Type.INT_TYPE){
+                        int thisValue = ((IntField) t.getField(i)).getValue();
+                        int oldMax = maxRecord.getOrDefault(i, Integer.MIN_VALUE);
+                        int oldMin = minRecord.getOrDefault(i, Integer.MAX_VALUE);
+
+                        int newMax = thisValue > oldMax ? thisValue : oldMax;
+                        int newMin = thisValue < oldMin ? thisValue : oldMin;
+
+                        maxRecord.put(i, newMax);
+                        minRecord.put(i, newMin);
+                    }
+                }
+
+            }
+
+            //初始化直方图
+            for (int i = 0; i < td.numFields(); i++)
+            {
+                Type type = td.getFieldType(i);
+                if (type == Type.INT_TYPE){
+                    intHistMap.put(i, new IntHistogram(NUM_HIST_BINS, minRecord.get(i), maxRecord.get(i)));
+                }else {
+                    stringHistMap.put(i, new StringHistogram(NUM_HIST_BINS));
+                }
+            }
+
+            //绘制直方图
+            tableIter.rewind();
+            while (tableIter.hasNext()){
+                Tuple t = tableIter.next();
+                for (int i = 0; i < td.numFields(); i++){
+                    Type type = td.getFieldType(i);
+                    if (type == Type.INT_TYPE){
+                        intHistMap.get(i).addValue(((IntField) t.getField(i)).getValue());
+                    }else {
+                        stringHistMap.get(i).addValue(((StringField) t.getField(i)).getValue());
+                    }
+                }
+            }
+
+
+        }catch (Exception e){
+            e.printStackTrace();
+        }finally {
+            tableIter.close();
+        }
+
+
     }
 
     /**
@@ -100,8 +169,7 @@ public class TableStats {
      * @return The estimated cost of scanning the table.
      */
     public double estimateScanCost() {
-        // some code goes here
-        return 0;
+        return iocostperpage * ((HeapFile)f).numPages();
     }
 
     /**
@@ -114,8 +182,7 @@ public class TableStats {
      *         selectivityFactor
      */
     public int estimateTableCardinality(double selectivityFactor) {
-        // some code goes here
-        return 0;
+        return (int)(selectivityFactor * totalTuples());
     }
 
     /**
@@ -147,16 +214,18 @@ public class TableStats {
      *         predicate
      */
     public double estimateSelectivity(int field, Predicate.Op op, Field constant) {
-        // some code goes here
-        return 1.0;
+        if (constant.getType() == Type.INT_TYPE){
+            return intHistMap.get(field).estimateSelectivity(op, ((IntField)constant).getValue());
+        }else {
+            return stringHistMap.get(field).estimateSelectivity(op, ((StringField)constant).getValue());
+        }
     }
 
     /**
      * return the total number of tuples in this table
      * */
     public int totalTuples() {
-        // some code goes here
-        return 0;
+        return tupleAmounts;
     }
 
 }
