@@ -2,76 +2,72 @@ package simpledb;
 
 
 // page-level locks catalog
-
-import java.util.Vector;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class LocksCatalog {
-    private ConcurrentHashMap<PageId, Vector<PageLock>> locksOnPage;
+    private ConcurrentHashMap<PageId, ConcurrentHashMap<TransactionId, PageLock>> locksOnPage;
 
     public LocksCatalog(){
         locksOnPage = new ConcurrentHashMap<>();
     }
 
     public synchronized boolean lock(PageId pid, TransactionId tid, Permissions perm) {
-        Vector<PageLock> ls = locksOnPage.get(pid);
+        ConcurrentHashMap<TransactionId, PageLock> ls = locksOnPage.get(pid);
 
         if (ls == null) {
             PageLock l = new PageLock(tid, perm);
-            Vector<PageLock> locks = new Vector<>();
-            locks.add(l);
+            ConcurrentHashMap<TransactionId, PageLock> locks = new ConcurrentHashMap<>();
+            locks.put(tid, l);
             locksOnPage.put(pid, locks);
             return true;
         }
 
-        for(PageLock l : ls){
-            if (l.tid == tid){
-                if (l.perm == perm) return true;
+        PageLock l = ls.get(tid);
+        if (l != null){
+            if (l.perm == perm) return true;
 
-                if (l.perm == Permissions.READ_ONLY && perm == Permissions.READ_WRITE){
-                    if (ls.size() != 1) return false;
-                    l.perm = Permissions.READ_WRITE;
-                    return true;
-                }
-
-                if (l.perm == Permissions.READ_WRITE && perm == Permissions.READ_ONLY){
-                    return true;
-                }
+            if (l.perm == Permissions.READ_ONLY && perm == Permissions.READ_WRITE){
+                if (ls.size() != 1) return false;
+                l.perm = Permissions.READ_WRITE;
+                return true;
             }
 
+            if (l.perm == Permissions.READ_WRITE && perm == Permissions.READ_ONLY){
+                return true;
+            }
+        }else {
+            if (ls.values().iterator().next().perm == Permissions.READ_WRITE || perm == Permissions.READ_WRITE) return false;
+
+            PageLock pl = new PageLock(tid, perm);
+            ls.put(tid, pl);
+            locksOnPage.put(pid, ls);
+            return true;
         }
-
-        if (ls.get(0).perm == Permissions.READ_WRITE || perm == Permissions.READ_WRITE) return false;
-
-        PageLock pl = new PageLock(tid, perm);
-        ls.add(pl);
-        locksOnPage.put(pid, ls);
+        System.out.println("This should not happen");
         return true;
     }
 
 
     public synchronized void unlock(PageId pid, TransactionId tid){
-        Vector<PageLock> ls = locksOnPage.get(pid);
-
-        for (int i = 0; i < ls.size(); i++){
-            if (ls.get(i).tid == tid){
-                ls.remove(i);
-                if (ls.size() == 0) locksOnPage.remove(pid);
-                return;
-            }
-        }
+        ConcurrentHashMap<TransactionId, PageLock> ls = locksOnPage.get(pid);
+        ls.remove(tid);
+        if (ls.size() == 0) locksOnPage.remove(pid);
     }
 
 
     public synchronized boolean isLocked(PageId pid, TransactionId tid){
-        Vector<PageLock> ls = locksOnPage.get(pid);
-        if (ls == null) return false;
+        if (locksOnPage.get(pid) == null) return false;
+        else return locksOnPage.get(pid).get(tid) !=null;
+    }
 
-        for (PageLock pl : ls){
-            if (pl.tid == tid) return true;
+    public synchronized ArrayList<PageId> getLocksbyTid(TransactionId tid){
+        ArrayList<PageId> lst = new ArrayList<>();
+        for(PageId pid : locksOnPage.keySet()) {
+            if (locksOnPage.get(pid).get(tid) != null)
+                lst.add(pid);
         }
-
-        return false;
+        return lst;
     }
 
 

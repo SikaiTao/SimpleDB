@@ -138,7 +138,7 @@ public class LogFile {
     public synchronized int getTotalRecords() {
         return totalRecords;
     }
-    
+
     /** Write an abort record to the log for the specified tid, force
         the log to disk, and perform a rollback
         @param tid The aborting transaction.
@@ -466,9 +466,32 @@ public class LogFile {
         synchronized (Database.getBufferPool()) {
             synchronized(this) {
                 preAppend();
-                // some code goes here
+                rbHelper(tid.getId());
             }
         }
+    }
+
+    private void rbHelper (long transIdLong) throws NoSuchElementException, IOException{
+        long transacStart = tidToFirstLogRecord.get(transIdLong);
+        long lastOffsetIndex = raf.length() - LONG_SIZE;
+        raf.seek(lastOffsetIndex);
+        long offset = raf.readLong();
+        while (offset > transacStart){
+            raf.seek(offset);
+            int recordType = raf.readInt();
+            if (recordType == UPDATE_RECORD){
+                if (raf.readLong() == transIdLong){
+                    Page old = this.readPageData(raf);
+                    Database.getCatalog().getDatabaseFile(old.getId().getTableId()).writePage(old);
+                    Database.getBufferPool().discardPage(old.getId());
+                    break;
+                }
+            }
+            long beforelastOffsetIndex = offset - LONG_SIZE;
+            raf.seek(beforelastOffsetIndex);
+            offset = raf.readLong();
+        }
+        raf.seek(currentOffset);
     }
 
     /** Shutdown the logging system, writing out whatever state
@@ -493,7 +516,105 @@ public class LogFile {
         synchronized (Database.getBufferPool()) {
             synchronized (this) {
                 recoveryUndecided = false;
-                // some code goes here
+
+                currentOffset = raf.length();
+                if (currentOffset - LONG_SIZE > 0) {
+                    raf.seek(currentOffset - LONG_SIZE);
+                    long index = raf.readLong();
+
+                    raf.seek(0);
+                    long finalCP = raf.readLong();
+                    if (finalCP == -1L) {
+                        finalCP = LONG_SIZE;
+                    }
+
+                    Set<Long> transacSets = new HashSet<>();
+                    Set<Long> commitSets = new HashSet<>();
+
+                    while (index >= finalCP) {
+                        raf.seek(index);
+                        int recordType = raf.readInt();
+                        long transacIdLong;
+
+                        if (recordType == CHECKPOINT_RECORD){
+                            assert finalCP == index;
+                            raf.seek(raf.getFilePointer() + LONG_SIZE);
+                            int validTNums = raf.readInt();
+                            for (int i = 0; i < validTNums; ++i) {
+                                transacIdLong = raf.readLong();
+                                long startIndex = raf.readLong();
+                                transacSets.add(transacIdLong);
+                                tidToFirstLogRecord.put(transacIdLong, startIndex);
+                            }
+                        }
+
+                        else if (recordType == BEGIN_RECORD){
+                            transacIdLong = raf.readLong();
+                            transacSets.add(transacIdLong);
+                        }
+
+                        else if (recordType == COMMIT_RECORD){
+                            transacIdLong = raf.readLong();
+                            commitSets.add(transacIdLong);
+                        }
+
+                        if (index > LONG_SIZE) {
+                            raf.seek(index - LONG_SIZE);
+                            index = raf.readLong();
+                        } else {
+                            index = -1;
+                        }
+                    }
+
+                    index = finalCP;
+                    while (currentOffset > index) {
+                        raf.seek(index);
+                        int recordType = raf.readInt();
+                        long transacIdLong;
+
+                        if (recordType == ABORT_RECORD){
+                            transacIdLong = raf.readLong();
+                            index = raf.getFilePointer();
+                            rbHelper(transacIdLong);
+                            transacSets.remove(transacIdLong);
+                        }
+                        else if (recordType == UPDATE_RECORD){
+                            raf.seek(raf.getFilePointer() + LONG_SIZE);
+                            readPageData(raf);
+                            Page after = readPageData(raf);
+                            Database.getCatalog().getDatabaseFile(after.getId().getTableId()).writePage(after);
+                            Database.getBufferPool().discardPage(after.getId());
+
+                            index = raf.getFilePointer();
+                        }
+                        else if (recordType == CHECKPOINT_RECORD){
+                            if (index != finalCP) throw new IOException("This should not happen");
+                            raf.seek(raf.getFilePointer() + LONG_SIZE);
+
+                            int validTNums = raf.readInt();
+                            index = raf.getFilePointer() + 2 * validTNums * LONG_SIZE;
+                        }
+
+                        else if (recordType == BEGIN_RECORD){
+                            transacIdLong = raf.readLong();
+                            tidToFirstLogRecord.put(transacIdLong, index);
+                            index = raf.getFilePointer();
+                        }
+
+                        else if (recordType == COMMIT_RECORD){
+                            transacIdLong = raf.readLong();
+                            tidToFirstLogRecord.remove(transacIdLong);
+                            index = raf.getFilePointer();
+                        }
+
+                        else throw new IOException("This should not happen");
+
+                        index += LONG_SIZE;
+                    }
+                    for (long tid : transacSets) {
+                        if (!commitSets.contains(tid)) rbHelper(tid);
+                    }
+                }
             }
          }
     }

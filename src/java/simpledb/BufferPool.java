@@ -167,22 +167,24 @@ public class BufferPool {
      */
     public void transactionComplete(TransactionId tid, boolean commit)
         throws IOException {
-        if (! commit){
-            for (Page p : bp.values()){
-                if (tid == p.isDirty()){
-                    DbFile f = Database.getCatalog().getDatabaseFile(p.getId().getTableId());
-                    bp.put(p.getId(), f.readPage(p.getId()));
+        ArrayList<PageId> locks = lc.getLocksbyTid(tid);
+        for (PageId pid : locks) {
+            Page pg = bp.get(pid);
+            if (pg != null) {
+                if (commit) {
+                    flushPage(pg.getId());
+                    pg.setBeforeImage();
+
+                } else if (pg.isDirty() != null){
+                    discardPage(pid);
                 }
             }
-        }else {
-            flushPages(tid);
         }
 
-        for (PageId pid : bp.keySet()){
-            if (holdsLock(tid, pid)) {
-                releasePage(tid, pid);
-            }
+        for (PageId pid : locks){
+            lc.unlock(pid, tid);
         }
+
     }
 
     /**
@@ -264,18 +266,23 @@ public class BufferPool {
      */
     private synchronized void flushPage(PageId pid) throws IOException {
         Page targetPage = bp.get(pid);
-        TransactionId dirtyTid = targetPage.isDirty();
-        if(dirtyTid != null){
-            Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(targetPage);
-            targetPage.markDirty(false, dirtyTid);
+        if (targetPage != null){
+            TransactionId dirtyTid = targetPage.isDirty();
+            if(dirtyTid != null){
+                Database.getLogFile().logWrite(dirtyTid, targetPage.getBeforeImage(), targetPage);
+                Database.getLogFile().force();
+
+                Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(targetPage);
+                targetPage.markDirty(false, dirtyTid);
+            }
         }
     }
 
     /** Write all pages of the specified transaction to disk.
      */
     public synchronized void flushPages(TransactionId tid) throws IOException {
-        for (PageId pid : bp.keySet()) {
-            if (bp.get(pid).isDirty() == tid) flushPage(pid);
+        for (Page p : bp.values()) {
+            if (p.isDirty() == tid) flushPage(p.getId());
         }
     }
 
